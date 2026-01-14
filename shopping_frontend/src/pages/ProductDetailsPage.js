@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
+import { useCart } from '../cart/CartContext';
 import { get } from '../lib/apiClient';
 import { getMockProductById, getMockProducts } from '../lib/mockProducts';
 
@@ -210,7 +211,10 @@ function ProductDetailsPage() {
   const [product, setProduct] = useState(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
 
+  const { addItem } = useCart();
+
   const [variantSelection, setVariantSelection] = useState({ size: '', color: '' });
+  const [variantError, setVariantError] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState('');
@@ -300,6 +304,10 @@ function ProductDetailsPage() {
     return findSelectedVariant(product.variants, variantSelection);
   }, [product, axes.hasVariants, variantSelection]);
 
+  useEffect(() => {
+    if (variantError) setVariantError('');
+  }, [variantSelection.color, variantSelection.size, variantError]);
+
   const activeImages = useMemo(() => {
     if (!product) return [];
     return Array.isArray(product.images) ? product.images : [];
@@ -350,17 +358,36 @@ function ProductDetailsPage() {
     if (!product) return;
     if (addDisabled) return;
 
-    const detail = {
+    // Graceful behavior: if variants exist, require the user to select relevant options.
+    if (axes.hasVariants) {
+      const needsColor = axes.hasColor && !String(variantSelection.color || '').trim();
+      const needsSize = axes.hasSize && !String(variantSelection.size || '').trim();
+
+      if (needsColor || needsSize) {
+        const needed = [
+          ...(needsColor ? ['color'] : []),
+          ...(needsSize ? ['size'] : []),
+        ].join(' and ');
+        setVariantError(`Please select a ${needed} before adding to cart.`);
+        return;
+      }
+    }
+
+    addItem({
       productId: product.id,
-      variantId: selectedVariant?.variantId ? String(selectedVariant.variantId) : undefined,
-      quantity: 1,
-    };
-
-    // Custom event stub for Step 06 wiring.
-    window.dispatchEvent(new CustomEvent('shopping:addToCart', { detail }));
-
-    // Keep current behavior a no-op beyond event emission.
-    // You may add a toast later once a notification system exists.
+      title: product.title,
+      price: effectivePrice,
+      currency: effectiveCurrency,
+      image: Array.isArray(product.images) && product.images.length ? product.images[0] : '',
+      qty: 1,
+      variant: axes.hasVariants
+        ? {
+            variantId: selectedVariant?.variantId ? String(selectedVariant.variantId) : undefined,
+            size: variantSelection.size ? String(variantSelection.size) : undefined,
+            color: variantSelection.color ? String(variantSelection.color) : undefined,
+          }
+        : undefined,
+    });
   };
 
   if (loading) return <ProductDetailsSkeleton />;
@@ -580,9 +607,17 @@ function ProductDetailsPage() {
             </Link>
           </div>
 
-          <p className="Muted" style={{ marginTop: 10, fontSize: 12 }}>
-            Tip: “Add to cart” currently emits a <span className="Pill">shopping:addToCart</span> browser event (wired in Step 06).
-          </p>
+          {variantError ? (
+            <p className="Muted" role="alert" style={{ marginTop: 10, fontSize: 12 }}>
+              <span className="Pill" style={{ borderColor: 'rgba(239, 68, 68, 0.32)', background: 'rgba(239, 68, 68, 0.10)' }}>
+                {variantError}
+              </span>
+            </p>
+          ) : (
+            <p className="Muted" style={{ marginTop: 10, fontSize: 12 }}>
+              Added items appear on the <Link to="/cart">cart</Link> page (localStorage-backed MVP).
+            </p>
+          )}
 
           <hr className="ProductDetails__divider" />
 

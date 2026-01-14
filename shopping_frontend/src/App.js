@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
+import { CartProvider, useCart } from './cart/CartContext';
 import CartPage from './pages/CartPage';
 import CheckoutPage from './pages/CheckoutPage';
 import HomePage from './pages/HomePage';
@@ -21,14 +22,19 @@ function useQueryParam(key) {
   }, [key, location.search]);
 }
 
-// PUBLIC_INTERFACE
-function App() {
-  /**
-   * Theme handling:
-   * - Default to light (per style guide)
-   * - Persist user's choice to localStorage
-   * - Apply to <html data-theme="..."> so CSS variables work globally
-   */
+function AppInner() {
+  const navigate = useNavigate();
+  const q = useQueryParam('q');
+  const { itemCount } = useCart();
+
+  // Keep the search input controlled by the URL (simple and shareable)
+  const handleSearchSubmit = (nextQ) => {
+    const trimmed = (nextQ ?? '').trim();
+    const qs = trimmed ? `?q=${encodeURIComponent(trimmed)}` : '';
+    navigate(`/catalog${qs}`);
+  };
+
+  // Theme handling (kept in the inner component; provider doesn't affect it)
   const [theme, setTheme] = useState('light');
 
   useEffect(() => {
@@ -42,17 +48,7 @@ function App() {
   }, [theme]);
 
   // PUBLIC_INTERFACE
-  const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-
-  const navigate = useNavigate();
-  const q = useQueryParam('q');
-
-  // Keep the search input controlled by the URL (simple and shareable)
-  const handleSearchSubmit = (nextQ) => {
-    const trimmed = (nextQ ?? '').trim();
-    const qs = trimmed ? `?q=${encodeURIComponent(trimmed)}` : '';
-    navigate(`/catalog${qs}`);
-  };
+  const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
   return (
     <AppLayout
@@ -60,7 +56,7 @@ function App() {
       onToggleTheme={toggleTheme}
       searchValue={q}
       onSearchSubmit={handleSearchSubmit}
-      cartCount={0}
+      cartCount={itemCount}
     >
       <Routes>
         <Route path="/" element={<Navigate to="/catalog" replace />} />
@@ -79,6 +75,16 @@ function App() {
         <Route path="*" element={<Navigate to="/catalog" replace />} />
       </Routes>
     </AppLayout>
+  );
+}
+
+// PUBLIC_INTERFACE
+function App() {
+  /** App root: provides CartProvider and renders the routed application. */
+  return (
+    <CartProvider>
+      <AppInner />
+    </CartProvider>
   );
 }
 

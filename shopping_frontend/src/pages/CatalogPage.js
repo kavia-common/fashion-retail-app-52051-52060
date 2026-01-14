@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useCart } from '../cart/CartContext';
 import { get } from '../lib/apiClient';
 import { getMockProducts } from '../lib/mockProducts';
 
@@ -187,6 +188,7 @@ function CatalogPage() {
   /** Product catalog page with responsive grid, URL-based search, filters, and sorting. */
   const location = useLocation();
   const navigate = useNavigate();
+  const { addItem } = useCart();
 
   const params = useMemo(() => toParams(location.search), [location.search]);
 
@@ -585,7 +587,21 @@ function CatalogPage() {
                       >
                         View
                       </Link>
-                      <button className="btn btnSecondary" type="button" disabled aria-disabled="true">
+                      <button
+                        className="btn btnSecondary"
+                        type="button"
+                        onClick={() => {
+                          addItem({
+                            productId: p.id,
+                            title: p.title,
+                            price: typeof p.price === 'number' ? p.price : Number(p.price ?? 0),
+                            currency: p.currency || 'USD',
+                            image: imageUrl || '',
+                            qty: 1,
+                          });
+                        }}
+                        aria-label={`Add ${p.title} to cart`}
+                      >
                         Add to cart
                       </button>
                     </div>
