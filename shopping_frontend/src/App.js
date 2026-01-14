@@ -4,6 +4,7 @@ import AppLayout from './components/layout/AppLayout';
 import { CartProvider, useCart } from './cart/CartContext';
 import CartPage from './pages/CartPage';
 import CheckoutPage from './pages/CheckoutPage';
+import OrderConfirmationPage from './pages/OrderConfirmationPage';
 import HomePage from './pages/HomePage';
 import CatalogPage from './pages/CatalogPage';
 import AdminHomePage from './pages/admin/AdminHomePage';
@@ -65,6 +66,7 @@ function AppInner() {
         <Route path="/product/:id" element={<ProductDetailsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
 
         <Route path="/admin" element={<AdminHomePage />} />
         <Route path="/admin/products" element={<AdminProductListPage />} />
