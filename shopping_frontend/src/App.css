@@ -322,6 +322,34 @@ body {
   margin: 0 0 12px;
 }
 
+.CatalogFilters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.CatalogFilters__field {
+  min-width: 220px;
+}
+
+.CatalogFilters__actions {
+  margin-top: 0;
+}
+
+.CatalogBanner {
+  margin-bottom: 14px;
+}
+
+.CatalogSummary {
+  margin: 0 0 12px;
+}
+
+.CatalogMetaDot {
+  opacity: 0.7;
+}
+
 .Card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -348,6 +376,15 @@ body {
   aspect-ratio: 4 / 3;
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.12));
   border-bottom: 1px solid var(--border-color);
+  position: relative;
+  overflow: hidden;
+}
+
+.ProductCard__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .Card__body {

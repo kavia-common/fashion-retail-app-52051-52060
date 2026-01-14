@@ -35,7 +35,7 @@ function AppLayout({ children, theme, onToggleTheme, searchValue, onSearchSubmit
       <header className="TopNav" role="banner">
         <div className="TopNav__inner">
           <div className="TopNav__left">
-            <Link to="/" className="Brand" aria-label="Go to homepage">
+            <Link to="/catalog" className="Brand" aria-label="Go to catalog">
               <span className="Brand__mark" aria-hidden="true">
                 FR
               </span>
@@ -64,6 +64,7 @@ function AppLayout({ children, theme, onToggleTheme, searchValue, onSearchSubmit
           </div>
 
           <nav className="TopNav__right" aria-label="Primary navigation">
+            <AppNavLink to="/catalog">Catalog</AppNavLink>
             <AppNavLink to="/cart">
               Cart <span className="Badge" aria-label={`Cart items count ${cartCount}`}>{cartCount}</span>
             </AppNavLink>

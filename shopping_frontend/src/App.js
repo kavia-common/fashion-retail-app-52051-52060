@@ -4,6 +4,7 @@ import AppLayout from './components/layout/AppLayout';
 import CartPage from './pages/CartPage';
 import CheckoutPage from './pages/CheckoutPage';
 import HomePage from './pages/HomePage';
+import CatalogPage from './pages/CatalogPage';
 import AdminHomePage from './pages/admin/AdminHomePage';
 import AdminProductEditPage from './pages/admin/AdminProductEditPage';
 import AdminProductListPage from './pages/admin/AdminProductListPage';
@@ -50,7 +51,7 @@ function App() {
   const handleSearchSubmit = (nextQ) => {
     const trimmed = (nextQ ?? '').trim();
     const qs = trimmed ? `?q=${encodeURIComponent(trimmed)}` : '';
-    navigate(`/${qs}`);
+    navigate(`/catalog${qs}`);
   };
 
   return (
@@ -62,7 +63,9 @@ function App() {
       cartCount={0}
     >
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<Navigate to="/catalog" replace />} />
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/catalog" element={<CatalogPage />} />
         <Route path="/product/:id" element={<ProductDetailsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
@@ -73,7 +76,7 @@ function App() {
         <Route path="/admin/products/:id" element={<AdminProductEditPage />} />
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/catalog" replace />} />
       </Routes>
     </AppLayout>
   );
