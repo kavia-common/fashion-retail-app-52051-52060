@@ -71,7 +71,9 @@ function AppInner() {
         <Route path="/admin" element={<AdminHomePage />} />
         <Route path="/admin/products" element={<AdminProductListPage />} />
         <Route path="/admin/products/new" element={<AdminProductNewPage />} />
-        <Route path="/admin/products/:id" element={<AdminProductEditPage />} />
+        <Route path="/admin/products/:id/edit" element={<AdminProductEditPage />} />
+        {/* Back-compat: existing route used by earlier list page */}
+        <Route path="/admin/products/:id" element={<Navigate to={`/admin/products/${encodeURIComponent(String(useLocation().pathname.split('/').pop() || ''))}/edit`} replace />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/catalog" replace />} />

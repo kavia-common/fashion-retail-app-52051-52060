@@ -276,7 +276,7 @@ function AdminProductListPage() {
                       )}
                     </td>
                     <td align="right">
-                      <Link className="btn btnGhost" to={`/admin/products/${encodeURIComponent(p.id)}`}>
+                      <Link className="btn btnGhost" to={`/admin/products/${encodeURIComponent(p.id)}/edit`}>
                         Edit
                       </Link>
                     </td>

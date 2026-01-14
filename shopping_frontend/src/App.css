@@ -571,6 +571,22 @@ body {
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
 }
 
+.Input--error {
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.10);
+}
+
+.Field__error {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-danger);
+}
+
+.Field__hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .InlineActions {
   display: flex;
   gap: 10px;
@@ -644,6 +660,10 @@ body {
   }
 
   .Search {
+    grid-template-columns: 1fr;
+  }
+
+  .FormGrid {
     grid-template-columns: 1fr;
   }
 }
