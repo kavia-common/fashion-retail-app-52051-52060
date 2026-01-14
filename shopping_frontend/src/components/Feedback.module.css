@@ -1,0 +1,54 @@
+.spinnerWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.16);
+  border-top-color: rgba(59, 130, 246, 0.9);
+  animation: spin 800ms linear infinite;
+}
+
+.spinnerLabel {
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error {
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+  color: #7f1d1d;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.empty {
+  padding: 18px;
+}
+
+.emptyTitle {
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.emptyDesc {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emptyAction {
+  margin-top: 12px;
+}
