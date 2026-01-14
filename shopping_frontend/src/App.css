@@ -365,7 +365,7 @@ body {
 .Grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 .Grid--list {
@@ -385,6 +385,108 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.Card__media--fallback {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.10), rgba(6, 182, 212, 0.10));
+}
+
+.ProductCard__imgFallback {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.18), transparent 55%),
+    radial-gradient(circle at 80% 30%, rgba(6, 182, 212, 0.18), transparent 55%),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(6, 182, 212, 0.08));
+}
+
+/* Catalog helpers */
+.CatalogPriceGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.CatalogBanner__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.CatalogBanner__actions {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Skeleton loading */
+.CatalogSkeleton__media {
+  width: 100%;
+  height: 100%;
+  background: rgba(17, 24, 39, 0.06);
+  position: relative;
+  overflow: hidden;
+}
+
+.CatalogSkeleton__line {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.08);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.CatalogSkeleton__line--title {
+  height: 14px;
+  width: 90%;
+}
+
+.CatalogSkeleton__line--meta {
+  width: 60%;
+}
+
+.CatalogSkeleton__pill {
+  height: 34px;
+  width: 84px;
+  border-radius: 12px;
+  background: rgba(17, 24, 39, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.CatalogSkeleton__pill--secondary {
+  width: 98px;
+  background: rgba(6, 182, 212, 0.10);
+}
+
+.CatalogSkeleton__media::after,
+.CatalogSkeleton__line::after,
+.CatalogSkeleton__pill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.45),
+    transparent
+  );
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+[data-theme="dark"] .CatalogSkeleton__media,
+[data-theme="dark"] .CatalogSkeleton__line,
+[data-theme="dark"] .CatalogSkeleton__pill {
+  background: rgba(229, 231, 235, 0.10);
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
 }
 
 .Card__body {
@@ -528,6 +630,7 @@ body {
 @media (max-width: 900px) {
   .Grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
   }
 
   .TwoCol {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { get } from '../lib/apiClient';
 import { getMockProducts } from '../lib/mockProducts';
@@ -112,7 +112,6 @@ function sortClientSide(items, sort, q) {
   // - else newest (keep backend order; for mock, apply stable "newest" heuristic)
   if (!s) {
     if (q) return copy;
-    // mock dataset is in a reasonable order already; still return stable copy.
     return copy;
   }
 
@@ -130,6 +129,59 @@ function sortClientSide(items, sort, q) {
   return copy;
 }
 
+function getFriendlyErrorMessage(err) {
+  const message = String(err?.message || '').trim();
+  if (err?.timeout) return 'Request timed out. Please check your connection and try again.';
+  if (err?.network) return 'Cannot reach the backend right now. Showing mock products instead.';
+  if (message) return message;
+  return 'Something went wrong while loading products.';
+}
+
+function getCatalogDefaultSort(q) {
+  return q ? 'relevance' : 'newest';
+}
+
+function getActiveSort(sortParam, q) {
+  return (sortParam || '').trim() || getCatalogDefaultSort(q);
+}
+
+function isSortAllowed(sortParam, q) {
+  const s = (sortParam || '').trim();
+  if (!s) return true;
+  if (s === 'relevance') return Boolean(q);
+  return ['newest', 'price_asc', 'price_desc'].includes(s);
+}
+
+/**
+ * Creates a stable "reset" query object for clearing filters on this page.
+ * @returns {Record<string,string>}
+ */
+function buildResetQuery() {
+  return { q: '', category: '', sort: '', minPrice: '', maxPrice: '' };
+}
+
+function CatalogSkeleton() {
+  return (
+    <section className="Grid" aria-label="Loading products" aria-busy="true">
+      {Array.from({ length: 8 }).map((_, idx) => (
+        <article key={idx} className="Card" aria-hidden="true">
+          <div className="Card__media">
+            <div className="CatalogSkeleton__media" />
+          </div>
+          <div className="Card__body">
+            <div className="CatalogSkeleton__line CatalogSkeleton__line--title" />
+            <div className="CatalogSkeleton__line CatalogSkeleton__line--meta" />
+            <div className="Card__actions">
+              <div className="CatalogSkeleton__pill" />
+              <div className="CatalogSkeleton__pill CatalogSkeleton__pill--secondary" />
+            </div>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
 // PUBLIC_INTERFACE
 function CatalogPage() {
   /** Product catalog page with responsive grid, URL-based search, filters, and sorting. */
@@ -141,7 +193,7 @@ function CatalogPage() {
   // URL-driven state (single source of truth)
   const q = params.get('q') ?? '';
   const category = params.get('category') ?? '';
-  const sort = params.get('sort') ?? ''; // relevance | newest | price_asc | price_desc
+  const sortParam = params.get('sort') ?? ''; // relevance | newest | price_asc | price_desc
   const minPrice = parseNumberOrUndefined(params.get('minPrice') ?? '');
   const maxPrice = parseNumberOrUndefined(params.get('maxPrice') ?? '');
 
@@ -156,13 +208,30 @@ function CatalogPage() {
   const [usingMock, setUsingMock] = useState(false);
   const [errorText, setErrorText] = useState('');
 
+  // Force refetch even if query params are unchanged (manual retry).
+  const [reloadTick, setReloadTick] = useState(0);
+
+  const lastLoadedQueryKeyRef = useRef('');
+
   // Keep local input fields in sync when URL changes (e.g., using back/forward).
   useEffect(() => {
     setMinPriceInput(params.get('minPrice') ?? '');
     setMaxPriceInput(params.get('maxPrice') ?? '');
-    // We intentionally depend on location.key to catch navigation even if query string matches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
+
+  // Ensure URL is always in a "valid" shape:
+  // - if sort=relevance but q is empty => drop sort
+  // - if sort is unknown => drop sort
+  useEffect(() => {
+    if (isSortAllowed(sortParam, q)) return;
+    const shouldClearSort = true;
+    if (!shouldClearSort) return;
+
+    const next = buildSearchString(params, { sort: '' });
+    navigate({ pathname: '/catalog', search: next }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, sortParam, location.search]);
 
   // Derive categories from current items so the filter stays relevant even if backend doesn't have categories endpoint.
   const categories = useMemo(() => {
@@ -173,18 +242,21 @@ function CatalogPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
+  const activeSort = getActiveSort(sortParam, q);
+
   const visibleItems = useMemo(() => {
     const filtered = filterClientSide(items, { q, category, minPrice, maxPrice });
-    return sortClientSide(filtered, sort || (q ? 'relevance' : 'newest'), q);
-  }, [items, q, category, minPrice, maxPrice, sort]);
+    return sortClientSide(filtered, activeSort, q);
+  }, [items, q, category, minPrice, maxPrice, activeSort]);
 
   /**
    * Updates URL query params for this page while preserving unspecified keys.
    * @param {Record<string,string>} updates
+   * @param {{ replace?: boolean }} [options]
    */
-  const updateQuery = (updates) => {
+  const updateQuery = (updates, options = {}) => {
     const next = buildSearchString(params, updates);
-    navigate({ pathname: '/catalog', search: next }, { replace: false });
+    navigate({ pathname: '/catalog', search: next }, { replace: Boolean(options.replace) });
   };
 
   const handleApplyPrice = () => {
@@ -214,7 +286,16 @@ function CatalogPage() {
       // Default sort choice mirrors the contract guidance:
       // - relevance if q is present
       // - newest otherwise
-      const effectiveSort = sort || (q ? 'relevance' : 'newest');
+      const effectiveSort = activeSort;
+
+      const queryKey = JSON.stringify({
+        q: q || '',
+        category: category || '',
+        sort: effectiveSort || '',
+        minPrice: minPrice ?? null,
+        maxPrice: maxPrice ?? null,
+      });
+      lastLoadedQueryKeyRef.current = queryKey;
 
       try {
         // Contract: GET /products supports q and sort.
@@ -239,20 +320,12 @@ function CatalogPage() {
       } catch (err) {
         // Graceful fallback: if backend is unreachable, show mock data and a banner.
         // We avoid hard-failing the UX for demos/dev.
-        const isNetwork =
-          Boolean(err && typeof err === 'object' && (err.network || err.timeout)) ||
-          /network/i.test(String(err?.message || ''));
-
         const fallback = getMockProducts().map(normalizeProductListItem);
+
         if (!cancelled) {
           setUsingMock(true);
           setItems(fallback);
-
-          setErrorText(
-            isNetwork
-              ? 'Backend unavailable — showing mock products.'
-              : 'Could not load products — showing mock products.'
-          );
+          setErrorText(getFriendlyErrorMessage(err));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -263,10 +336,17 @@ function CatalogPage() {
     return () => {
       cancelled = true;
     };
-    // Re-fetch when URL-driven inputs change.
-  }, [q, category, sort, minPrice, maxPrice]);
+    // Re-fetch when URL-driven inputs change OR manual reload is requested.
+  }, [q, category, activeSort, minPrice, maxPrice, reloadTick]);
 
-  const hasAnyFilters = Boolean(q || category || sort || minPrice != null || maxPrice != null);
+  const hasAnyFilters = Boolean(q || category || sortParam || minPrice != null || maxPrice != null);
+
+  const showBackendBanner = Boolean(errorText || usingMock);
+
+  const emptyTitle = q ? 'No results for your search' : 'No products found';
+  const emptyBody = q
+    ? 'Try a different search term, broaden your filters, or reset to see all products.'
+    : 'Try adjusting your filters or resetting to see all products.';
 
   return (
     <div className="Page">
@@ -289,8 +369,16 @@ function CatalogPage() {
             <span className="Field__label">Sort</span>
             <select
               className="Input"
-              value={sort || (q ? 'relevance' : 'newest')}
-              onChange={(e) => updateQuery({ sort: e.target.value })}
+              value={activeSort}
+              onChange={(e) => {
+                const next = e.target.value;
+                // If user selects "relevance" without a query, we keep URL clean by not setting it.
+                if (next === 'relevance' && !q) {
+                  updateQuery({ sort: '' });
+                  return;
+                }
+                updateQuery({ sort: next });
+              }}
               aria-label="Sort products"
             >
               <option value="relevance" disabled={!q}>
@@ -321,13 +409,16 @@ function CatalogPage() {
 
           <div className="Field CatalogFilters__field" aria-label="Filter by price range">
             <span className="Field__label">Price range</span>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="CatalogPriceGrid">
               <input
                 className="Input"
                 inputMode="decimal"
                 placeholder="Min"
                 value={minPriceInput}
                 onChange={(e) => setMinPriceInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleApplyPrice();
+                }}
                 aria-label="Minimum price"
               />
               <input
@@ -336,6 +427,9 @@ function CatalogPage() {
                 placeholder="Max"
                 value={maxPriceInput}
                 onChange={(e) => setMaxPriceInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleApplyPrice();
+                }}
                 aria-label="Maximum price"
               />
             </div>
@@ -365,7 +459,7 @@ function CatalogPage() {
               onClick={() => {
                 setMinPriceInput('');
                 setMaxPriceInput('');
-                updateQuery({ q: '', category: '', sort: '', minPrice: '', maxPrice: '' });
+                updateQuery(buildResetQuery());
               }}
               disabled={!hasAnyFilters}
             >
@@ -375,24 +469,32 @@ function CatalogPage() {
         </div>
       </header>
 
-      {(errorText || usingMock) && (
+      {showBackendBanner && (
         <section className="Card Card--padded CatalogBanner" role="status" aria-live="polite">
-          <p className="Muted" style={{ margin: 0 }}>
-            {errorText || 'Showing mock products.'}
-          </p>
+          <div className="CatalogBanner__row">
+            <p className="Muted" style={{ margin: 0 }}>
+              {errorText || 'Showing mock products.'}
+            </p>
+            <div className="CatalogBanner__actions">
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => setReloadTick((t) => t + 1)}
+                aria-label="Retry loading products"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
         </section>
       )}
 
       {loading ? (
-        <section className="Card Card--padded" aria-busy="true">
-          <p className="Muted" style={{ margin: 0 }}>
-            Loading products…
-          </p>
-        </section>
+        <CatalogSkeleton />
       ) : visibleItems.length === 0 ? (
-        <section className="Card Card--padded">
-          <h2 className="SectionTitle">No results</h2>
-          <p className="Muted">Try a different search term or clear filters.</p>
+        <section className="Card Card--padded" role="status" aria-live="polite">
+          <h2 className="SectionTitle">{emptyTitle}</h2>
+          <p className="Muted">{emptyBody}</p>
           <div className="InlineActions">
             <button
               type="button"
@@ -400,10 +502,23 @@ function CatalogPage() {
               onClick={() => {
                 setMinPriceInput('');
                 setMaxPriceInput('');
-                updateQuery({ q: '', category: '', sort: '', minPrice: '', maxPrice: '' });
+                updateQuery(buildResetQuery());
               }}
             >
               Reset filters
+            </button>
+            <button
+              type="button"
+              className="btn btnGhost"
+              onClick={() => {
+                // Keep q (search) but reset other filters as a “less destructive” option
+                setMinPriceInput('');
+                setMaxPriceInput('');
+                updateQuery({ category: '', sort: '', minPrice: '', maxPrice: '' });
+              }}
+              disabled={!hasAnyFilters}
+            >
+              Reset (keep search)
             </button>
           </div>
         </section>
@@ -421,9 +536,8 @@ function CatalogPage() {
               <>
                 {' '}
                 <span className="CatalogMetaDot"> • </span>
-                <span className="Pill">
-                  ${minPrice != null ? minPrice.toFixed(0) : '0'}–$
-                  {maxPrice != null ? maxPrice.toFixed(0) : '∞'}
+                <span className="Pill" aria-label="Active price range filter">
+                  ${minPrice != null ? minPrice.toFixed(0) : '0'}–${maxPrice != null ? maxPrice.toFixed(0) : '∞'}
                 </span>
               </>
             ) : null}
@@ -443,11 +557,16 @@ function CatalogPage() {
                         alt={p.title}
                         loading="lazy"
                         onError={(e) => {
-                          // Hide broken images but keep layout stable.
+                          // Keep layout stable and show a lightweight fallback.
                           e.currentTarget.style.display = 'none';
+                          e.currentTarget
+                            .closest('.Card__media')
+                            ?.classList.add('Card__media--fallback');
                         }}
                       />
-                    ) : null}
+                    ) : (
+                      <div className="ProductCard__imgFallback" aria-label="No product image available" />
+                    )}
                   </div>
 
                   <div className="Card__body">
@@ -459,10 +578,14 @@ function CatalogPage() {
                     </p>
 
                     <div className="Card__actions">
-                      <Link className="btn btnPrimary" to={`/product/${encodeURIComponent(p.id)}`}>
+                      <Link
+                        className="btn btnPrimary"
+                        to={`/product/${encodeURIComponent(p.id)}`}
+                        aria-label={`View details for ${p.title}`}
+                      >
                         View
                       </Link>
-                      <button className="btn btnSecondary" type="button" disabled>
+                      <button className="btn btnSecondary" type="button" disabled aria-disabled="true">
                         Add to cart
                       </button>
                     </div>
@@ -471,6 +594,11 @@ function CatalogPage() {
               );
             })}
           </section>
+
+          {/* Hidden debug-ish marker for QA; does not affect layout */}
+          <span className="srOnly" aria-hidden="true">
+            lastLoadedQueryKey={lastLoadedQueryKeyRef.current}
+          </span>
         </>
       )}
     </div>
