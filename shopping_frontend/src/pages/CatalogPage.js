@@ -14,7 +14,7 @@ function toParams(search) {
 
 /**
  * Builds a new search string by applying updates to current params.
- * - Deletes keys when value is empty
+ * - Deletes keys when value is empty ("" or whitespace)
  * - Preserves other existing keys
  *
  * @param {URLSearchParams} currentParams
@@ -37,7 +37,7 @@ function buildSearchString(currentParams, updates) {
  * The backend contract defines "items" with minimal fields; mock uses the same.
  *
  * @param {any} p
- * @returns {{id: string, title: string, price: number, currency?: string, images?: string[], category?: string, brand?: string}}
+ * @returns {{id: string, title: string, price: number, currency?: string, images?: string[], category?: string, brand?: string, createdAt?: string}}
  */
 function normalizeProductListItem(p) {
   return {
@@ -48,38 +48,106 @@ function normalizeProductListItem(p) {
     images: Array.isArray(p?.images) ? p.images : [],
     category: p?.category ? String(p.category) : '',
     brand: p?.brand ? String(p.brand) : '',
+    // Optional - helps "newest" sorting in mock fallback if present later.
+    createdAt: p?.createdAt ? String(p.createdAt) : '',
   };
 }
 
 /**
- * In-memory filter used as a fallback when backend can't filter by category yet,
- * or when we're displaying mock data.
+ * Safely parses a number-like string. Returns undefined for empty/invalid inputs.
+ * @param {string} v
+ * @returns {number|undefined}
+ */
+function parseNumberOrUndefined(v) {
+  const trimmed = (v ?? '').trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Client-side filtering used:
+ * - for mock fallback
+ * - as a safety net if backend doesn't support category/price range filters yet
  *
  * @param {ReturnType<typeof normalizeProductListItem>[]} items
- * @param {{ q: string, category: string }} filters
+ * @param {{ q: string, category: string, minPrice?: number, maxPrice?: number }} filters
+ * @returns {ReturnType<typeof normalizeProductListItem>[]}
  */
 function filterClientSide(items, filters) {
   const q = (filters.q || '').trim().toLowerCase();
   const category = (filters.category || '').trim().toLowerCase();
+  const minPrice = typeof filters.minPrice === 'number' ? filters.minPrice : undefined;
+  const maxPrice = typeof filters.maxPrice === 'number' ? filters.maxPrice : undefined;
 
   return items.filter((p) => {
-    if (category && String(p.category || '').toLowerCase() !== category) return false;
-    if (!q) return true;
+    const price = typeof p.price === 'number' ? p.price : Number(p.price ?? 0);
 
+    if (category && String(p.category || '').toLowerCase() !== category) return false;
+    if (minPrice != null && price < minPrice) return false;
+    if (maxPrice != null && price > maxPrice) return false;
+
+    if (!q) return true;
     const hay = `${p.title} ${p.brand || ''} ${p.category || ''}`.toLowerCase();
     return hay.includes(q);
   });
 }
 
+/**
+ * Client-side sorting used:
+ * - for mock fallback
+ * - as a consistent UI behavior when backend ignores `sort`
+ *
+ * @param {ReturnType<typeof normalizeProductListItem>[]} items
+ * @param {string} sort
+ * @param {string} q
+ * @returns {ReturnType<typeof normalizeProductListItem>[]}
+ */
+function sortClientSide(items, sort, q) {
+  const s = (sort || '').trim();
+  const copy = [...items];
+
+  // Default sort:
+  // - if q present => relevance (keep backend order / input order)
+  // - else newest (keep backend order; for mock, apply stable "newest" heuristic)
+  if (!s) {
+    if (q) return copy;
+    // mock dataset is in a reasonable order already; still return stable copy.
+    return copy;
+  }
+
+  if (s === 'relevance') return copy;
+  if (s === 'price_asc') return copy.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+  if (s === 'price_desc') return copy.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+
+  if (s === 'newest') {
+    // Prefer createdAt if present; otherwise fall back to keeping existing order.
+    const anyHasCreatedAt = copy.some((p) => Boolean(p.createdAt));
+    if (!anyHasCreatedAt) return copy;
+    return copy.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  }
+
+  return copy;
+}
+
 // PUBLIC_INTERFACE
 function CatalogPage() {
-  /** Product catalog page with responsive grid, URL-based search, and basic category filtering. */
+  /** Product catalog page with responsive grid, URL-based search, filters, and sorting. */
   const location = useLocation();
   const navigate = useNavigate();
 
   const params = useMemo(() => toParams(location.search), [location.search]);
+
+  // URL-driven state (single source of truth)
   const q = params.get('q') ?? '';
   const category = params.get('category') ?? '';
+  const sort = params.get('sort') ?? ''; // relevance | newest | price_asc | price_desc
+  const minPrice = parseNumberOrUndefined(params.get('minPrice') ?? '');
+  const maxPrice = parseNumberOrUndefined(params.get('maxPrice') ?? '');
+
+  // UI-only state for numeric inputs (keep them editable even if invalid mid-typing)
+  const [minPriceInput, setMinPriceInput] = useState(params.get('minPrice') ?? '');
+  const [maxPriceInput, setMaxPriceInput] = useState(params.get('maxPrice') ?? '');
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +156,15 @@ function CatalogPage() {
   const [usingMock, setUsingMock] = useState(false);
   const [errorText, setErrorText] = useState('');
 
-  // Derive categories from current items so the filter stays relevant.
+  // Keep local input fields in sync when URL changes (e.g., using back/forward).
+  useEffect(() => {
+    setMinPriceInput(params.get('minPrice') ?? '');
+    setMaxPriceInput(params.get('maxPrice') ?? '');
+    // We intentionally depend on location.key to catch navigation even if query string matches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
+
+  // Derive categories from current items so the filter stays relevant even if backend doesn't have categories endpoint.
   const categories = useMemo(() => {
     const set = new Set();
     for (const p of items) {
@@ -97,16 +173,35 @@ function CatalogPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  const visibleItems = useMemo(
-    () => filterClientSide(items, { q, category }),
-    [items, q, category]
-  );
+  const visibleItems = useMemo(() => {
+    const filtered = filterClientSide(items, { q, category, minPrice, maxPrice });
+    return sortClientSide(filtered, sort || (q ? 'relevance' : 'newest'), q);
+  }, [items, q, category, minPrice, maxPrice, sort]);
 
-  // Keep the app-level search bar working by continuing to use "?q=".
-  // This page adds "category" and still preserves q.
+  /**
+   * Updates URL query params for this page while preserving unspecified keys.
+   * @param {Record<string,string>} updates
+   */
   const updateQuery = (updates) => {
     const next = buildSearchString(params, updates);
-    navigate({ pathname: '/', search: next }, { replace: false });
+    navigate({ pathname: '/catalog', search: next }, { replace: false });
+  };
+
+  const handleApplyPrice = () => {
+    // Normalize: allow clearing, and prevent inverted ranges by auto-swapping.
+    const min = parseNumberOrUndefined(minPriceInput);
+    const max = parseNumberOrUndefined(maxPriceInput);
+
+    if (min != null && max != null && min > max) {
+      // Swap to keep UX forgiving.
+      updateQuery({ minPrice: String(max), maxPrice: String(min) });
+      return;
+    }
+
+    updateQuery({
+      minPrice: min != null ? String(min) : '',
+      maxPrice: max != null ? String(max) : '',
+    });
   };
 
   useEffect(() => {
@@ -116,15 +211,22 @@ function CatalogPage() {
       setLoading(true);
       setErrorText('');
 
+      // Default sort choice mirrors the contract guidance:
+      // - relevance if q is present
+      // - newest otherwise
+      const effectiveSort = sort || (q ? 'relevance' : 'newest');
+
       try {
-        // Contract: GET /products supports q; category is not explicitly defined in the contract,
-        // but we can still send it as a query param for forward-compatibility.
+        // Contract: GET /products supports q and sort.
+        // Category/min/max are not explicitly defined, but we can still send for forward-compatibility.
         const data = await get('/products', {
           ...(q ? { q } : {}),
+          ...(effectiveSort ? { sort: effectiveSort } : {}),
           ...(category ? { category } : {}),
+          ...(minPrice != null ? { minPrice } : {}),
+          ...(maxPrice != null ? { maxPrice } : {}),
           page: 1,
           pageSize: 40,
-          sort: q ? 'relevance' : 'newest',
         });
 
         const serverItems = Array.isArray(data?.items) ? data.items : [];
@@ -149,7 +251,7 @@ function CatalogPage() {
           setErrorText(
             isNetwork
               ? 'Backend unavailable — showing mock products.'
-              : `Could not load products — showing mock products.`
+              : 'Could not load products — showing mock products.'
           );
         }
       } finally {
@@ -161,7 +263,10 @@ function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [q, category]);
+    // Re-fetch when URL-driven inputs change.
+  }, [q, category, sort, minPrice, maxPrice]);
+
+  const hasAnyFilters = Boolean(q || category || sort || minPrice != null || maxPrice != null);
 
   return (
     <div className="Page">
@@ -181,6 +286,23 @@ function CatalogPage() {
 
         <div className="CatalogFilters" aria-label="Catalog filters">
           <label className="Field CatalogFilters__field">
+            <span className="Field__label">Sort</span>
+            <select
+              className="Input"
+              value={sort || (q ? 'relevance' : 'newest')}
+              onChange={(e) => updateQuery({ sort: e.target.value })}
+              aria-label="Sort products"
+            >
+              <option value="relevance" disabled={!q}>
+                Relevance
+              </option>
+              <option value="newest">Newest</option>
+              <option value="price_asc">Price: Low → High</option>
+              <option value="price_desc">Price: High → Low</option>
+            </select>
+          </label>
+
+          <label className="Field CatalogFilters__field">
             <span className="Field__label">Category</span>
             <select
               className="Input"
@@ -197,14 +319,57 @@ function CatalogPage() {
             </select>
           </label>
 
+          <div className="Field CatalogFilters__field" aria-label="Filter by price range">
+            <span className="Field__label">Price range</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <input
+                className="Input"
+                inputMode="decimal"
+                placeholder="Min"
+                value={minPriceInput}
+                onChange={(e) => setMinPriceInput(e.target.value)}
+                aria-label="Minimum price"
+              />
+              <input
+                className="Input"
+                inputMode="decimal"
+                placeholder="Max"
+                value={maxPriceInput}
+                onChange={(e) => setMaxPriceInput(e.target.value)}
+                aria-label="Maximum price"
+              />
+            </div>
+            <div className="InlineActions" style={{ marginTop: 10 }}>
+              <button type="button" className="btn btnSecondary" onClick={handleApplyPrice}>
+                Apply
+              </button>
+              <button
+                type="button"
+                className="btn btnGhost"
+                onClick={() => {
+                  setMinPriceInput('');
+                  setMaxPriceInput('');
+                  updateQuery({ minPrice: '', maxPrice: '' });
+                }}
+                disabled={!(params.get('minPrice') || params.get('maxPrice'))}
+              >
+                Clear price
+              </button>
+            </div>
+          </div>
+
           <div className="InlineActions CatalogFilters__actions">
             <button
               type="button"
               className="btn btnGhost"
-              onClick={() => updateQuery({ q: '', category: '' })}
-              disabled={!q && !category}
+              onClick={() => {
+                setMinPriceInput('');
+                setMaxPriceInput('');
+                updateQuery({ q: '', category: '', sort: '', minPrice: '', maxPrice: '' });
+              }}
+              disabled={!hasAnyFilters}
             >
-              Clear
+              Clear all
             </button>
           </div>
         </div>
@@ -227,11 +392,17 @@ function CatalogPage() {
       ) : visibleItems.length === 0 ? (
         <section className="Card Card--padded">
           <h2 className="SectionTitle">No results</h2>
-          <p className="Muted">
-            Try a different search term or clear filters.
-          </p>
+          <p className="Muted">Try a different search term or clear filters.</p>
           <div className="InlineActions">
-            <button type="button" className="btn btnPrimary" onClick={() => updateQuery({ q: '', category: '' })}>
+            <button
+              type="button"
+              className="btn btnPrimary"
+              onClick={() => {
+                setMinPriceInput('');
+                setMaxPriceInput('');
+                updateQuery({ q: '', category: '', sort: '', minPrice: '', maxPrice: '' });
+              }}
+            >
               Reset filters
             </button>
           </div>
@@ -244,6 +415,16 @@ function CatalogPage() {
               <>
                 {' '}
                 in <span className="Pill">{category}</span>
+              </>
+            ) : null}
+            {minPrice != null || maxPrice != null ? (
+              <>
+                {' '}
+                <span className="CatalogMetaDot"> • </span>
+                <span className="Pill">
+                  ${minPrice != null ? minPrice.toFixed(0) : '0'}–$
+                  {maxPrice != null ? maxPrice.toFixed(0) : '∞'}
+                </span>
               </>
             ) : null}
           </p>
